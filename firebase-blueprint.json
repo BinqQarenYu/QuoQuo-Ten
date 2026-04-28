@@ -1,0 +1,149 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System users with specific roles.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["client", "farmer", "rider", "admin"] },
+        "displayName": { "type": "string" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "address": { "type": "string" }
+          }
+        }
+      },
+      "required": ["email", "role"]
+    },
+    "Ingredient": {
+      "title": "Ingredient",
+      "description": "Individual produce items.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "image": { "type": "string" },
+        "carbonFootprint": { "type": "number" }
+      },
+      "required": ["name"]
+    },
+    "FarmerInventory": {
+      "title": "Farmer Inventory",
+      "description": "Available stock per farmer.",
+      "type": "object",
+      "properties": {
+        "farmerId": { "type": "string" },
+        "ingredientId": { "type": "string" },
+        "price": { "type": "number" },
+        "stock": { "type": "number" },
+        "unit": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["farmerId", "ingredientId", "price", "stock"]
+    },
+    "Recipe": {
+      "title": "Recipe",
+      "description": "Meal suggestions based on seasonal availability.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ingredientId": { "type": "string" },
+              "amount": { "type": "string" }
+            }
+          }
+        },
+        "instructions": { "type": "string" }
+      },
+      "required": ["title", "ingredients"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A delivery order from a client.",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "recipeId": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ingredientId": { "type": "string" },
+              "farmerId": { "type": "string" },
+              "quantity": { "type": "number" }
+            }
+          }
+        },
+        "status": { "type": "string", "enum": ["paid", "assigned", "collecting", "delivering", "completed"] },
+        "riderId": { "type": "string" },
+        "deliveryLocation": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "address": { "type": "string" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["clientId", "status", "createdAt"]
+    },
+    "Route": {
+      "title": "Route",
+      "description": "Optimized delivery route for a rider.",
+      "type": "object",
+      "properties": {
+        "riderId": { "type": "string" },
+        "stops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["pickup", "dropoff"] },
+              "location": { "type": "object" },
+              "farmerId": { "type": "string" },
+              "orderId": { "type": "string" }
+            }
+          }
+        },
+        "status": { "type": "string", "enum": ["active", "completed"] }
+      },
+      "required": ["riderId", "status"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and roles."
+    },
+    "ingredients/{ingredientId}": {
+      "schema": "Ingredient",
+      "description": "Master list of produce."
+    },
+    "inventory/{inventoryId}": {
+      "schema": "FarmerInventory",
+      "description": "Real-time stock from farmers."
+    },
+    "recipes/{recipeId}": {
+      "schema": "Recipe",
+      "description": "Curated recipes."
+    },
+    "orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer orders."
+    },
+    "routes/{routeId}": {
+      "schema": "Route",
+      "description": "Optimized delivery batches."
+    }
+  }
+}

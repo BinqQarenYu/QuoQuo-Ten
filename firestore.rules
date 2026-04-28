@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+
+    // Connectivity Test Rule
+    match /test/connection {
+      allow read: if true;
+    }
+
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- User Rules ---
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.email is string && data.email.size() <= 128 &&
+               data.role in ['client', 'farmer', 'rider', 'admin'] &&
+               (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128));
+      }
+      allow get: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(incoming()) && incoming().role != 'admin';
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'location', 'role']) ||
+        isAdmin()
+      );
+    }
+
+    // --- Ingredient Rules ---
+    match /ingredients/{ingredientId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- Inventory Rules ---
+    match /inventory/{inventoryId} {
+      function isValidInventory(data) {
+        return data.farmerId == request.auth.uid &&
+               data.price is number && data.price > 0 &&
+               data.stock is number && data.stock >= 0;
+      }
+      allow read: if isSignedIn();
+      allow create: if isVerified() && isValidInventory(incoming());
+      allow update: if isVerified() && existing().farmerId == request.auth.uid && isValidInventory(incoming());
+      allow delete: if isVerified() && existing().farmerId == request.auth.uid;
+    }
+
+    // --- Recipe Rules ---
+    match /recipes/{recipeId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- Order Rules ---
+    match /orders/{orderId} {
+      function isValidOrder(data) {
+        return data.clientId == request.auth.uid &&
+               data.status in ['paid', 'assigned', 'collecting', 'delivering', 'completed'];
+      }
+      allow read: if isSignedIn() && (resource.data.clientId == request.auth.uid || resource.data.riderId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidOrder(incoming()) && incoming().status == 'paid';
+      allow update: if isVerified() && (
+        (isOwner(existing().clientId) && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && existing().status == 'paid' && incoming().status == 'cancelled') ||
+        (existing().riderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+        isAdmin()
+      );
+    }
+
+    // --- Route Rules ---
+    match /routes/{routeId} {
+      allow read: if isSignedIn() && (resource.data.riderId == request.auth.uid || isAdmin());
+      allow write: if isSignedIn() && (incoming().riderId == request.auth.uid || isAdmin());
+    }
+  }
+}

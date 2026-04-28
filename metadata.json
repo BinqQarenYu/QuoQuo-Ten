@@ -1,0 +1,12 @@
+{
+  "name": "AgriRoute: Farm-to-Kitchen",
+  "description": "A sustainable, recipe-driven delivery platform that optimizes local sourcing and logistics to support farmers and reduce food miles.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "AI-powered recipe suggestions",
+    "Multi-stop logistics optimization",
+    "Real-time inventory management"
+  ]
+}
