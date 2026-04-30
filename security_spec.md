@@ -1,22 +1,26 @@
-# Security Spec: AgriRoute
+# Security Specification
 
-## Data Invariants
-1. An order must have a valid `clientId` matching the requester.
-2. A rider can only update orders assigned to them.
-3. Inventory changes must be made by the farmer who owns that inventory record.
+## 1. Data Invariants
+- A user document can only be created by the verified user whose UID matches the document ID.
+- User roles ("client", "farmer", "rider", "admin") cannot be self-assigned; creation requires default "client" or no role unless handled securely (we'll allow setting role strictly through an admin backend, or for this prototype, users can only read their own profile, maybe setting 'client' on create).
+- A Transaction must belong to the client who creates it.
+- A client can only read their own transactions.
+- A Transaction's paymentStatus and status can only be updated securely (either by admin or through specific allowed state transitions by the user/system).
+- Produce can only be created/updated by the farmer (farmerId == request.auth.uid) and they must have the "farmer" role (or we just identify by ownership).
 
-## "The Dirty Dozen" Payloads (Deny Cases)
-1. Unauthorized profile update: Changing another user's role to 'admin'.
-2. Counterfeit order: Creating an order for another `clientId`.
-3. Inventory spoofing: Farmer A updating Farmer B's stock prices.
-4. Route hijacking: Rider A completing Rider B's delivery route.
-5. Orphaned order: Creating an order with a non-existent recipe or farmer.
-6. PII Leak: Requesting all user emails as a public "client".
-7. State Skipping: Updating order status from 'paid' to 'completed' without 'delivering'.
-8. Resource Poisoning: Injecting 2MB of text into an ingredient description.
-9. Delivery Spoofing: Updating delivery location after rider has started.
+## 2. The "Dirty Dozen" Payloads
+1. **Identity Spoofing**: `{"clientId": "other-user-uid"}` during Transaction create.
+2. **Ghost Field**: `{"status": "pending", "ghost": "boo"}` during Transaction create.
+3. **Escalation**: `{"role": "admin"}` during User update.
+4. **Invalid Type**: `{"totalAmount": "100"}` (string instead of number) during Transaction create.
+5. **Array Overload**: `{"items": [excessive_items]}` during Transaction create.
+6. **State Skip**: `{"status": "delivered"}` on a fresh Transaction create.
+7. **Immutable Edit**: Updating `createdAt` timestamp on an existing document.
+8. **Delete Attack**: Attempting to delete someone else's Transaction.
+9. **List Exposure**: Attempting to list all transactions without a `clientId == request.auth.uid` filter.
+10. **ID Poisoning**: Creating a User or Transaction with a 1MB string as the document ID.
+11. **Spoofed Email**: Creating a User doc with another person's email without `email_verified == true`.
+12. **Unverified Auth**: Attempting to create a Transaction with an unverified email account.
 
-## Verification Tests Plan
-- `test_order_creation`: Block if `clientId != auth.uid`.
-- `test_inventory_write`: Block if `farmerId != auth.uid`.
-- `test_role_management`: Block any non-admin from writing to the `role` field.
+## 3. The Test Runner
+A `firestore.rules.test.ts` will verify these using `@firebase/rules-unit-testing`.

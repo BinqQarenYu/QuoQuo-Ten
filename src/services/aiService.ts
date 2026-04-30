@@ -13,12 +13,16 @@ export interface FarmIngredient {
 }
 
 export interface SuggestedRecipe {
+  id?: string;
   title: string;
   description: string;
+  category?: string;
   ingredients: { name: string; amount: string; id: string | null; farmerName?: string }[];
   carbonSavings: string;
   instructions: string[];
   yields: string;
+  averageRating?: number;
+  ratingCount?: number;
 }
 
 export const getRecipeSuggestions = async (availableProduce: FarmIngredient[]): Promise<SuggestedRecipe[]> => {
@@ -53,6 +57,7 @@ CORE MISSION:
           properties: {
             title: { type: Type.STRING },
             description: { type: Type.STRING },
+            category: { type: Type.STRING, description: "Category of the recipe, e.g. 'Breakfast', 'Main Course', 'Dessert', 'Starter', 'Snack'" },
             ingredients: {
               type: Type.ARRAY,
               items: {

@@ -2,148 +2,120 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "System users with specific roles.",
+      "description": "A user in the system (client, farmer, rider, admin)",
       "type": "object",
       "properties": {
-        "email": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
         "role": { "type": "string", "enum": ["client", "farmer", "rider", "admin"] },
-        "displayName": { "type": "string" },
-        "location": {
-          "type": "object",
-          "properties": {
-            "lat": { "type": "number" },
-            "lng": { "type": "number" },
-            "address": { "type": "string" }
-          }
-        }
+        "name": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
       },
-      "required": ["email", "role"]
+      "required": ["email", "role", "name", "createdAt", "updatedAt"]
     },
-    "Ingredient": {
-      "title": "Ingredient",
-      "description": "Individual produce items.",
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A transaction or order placed by a client",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "processing", "shipped", "delivered", "failed", "cancelled"] },
+        "totalAmount": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["unpaid", "paid"] },
+        "items": { "type": "array" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["clientId", "status", "totalAmount", "paymentStatus", "items", "createdAt", "updatedAt"]
+    },
+    "Produce": {
+      "title": "Produce",
+      "description": "Produce items available from farmers",
+      "type": "object",
+      "properties": {
+        "farmerId": { "type": "string" },
+        "name": { "type": "string" },
+        "stock": { "type": "number" },
+        "unit": { "type": "string" },
+        "price": { "type": "number" },
+        "isOrganic": { "type": "boolean" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["farmerId", "name", "stock", "unit", "price", "isOrganic", "createdAt", "updatedAt"]
+    },
+    "Recipe": {
+      "title": "Recipe",
+      "description": "A farm-to-table recipe",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "ingredients": { "type": "array" },
+        "carbonSavings": { "type": "string" },
+        "instructions": { "type": "array" },
+        "yields": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["title", "description", "ingredients", "instructions", "createdAt", "updatedAt"]
+    },
+    "CommissaryItem": {
+      "title": "Commissary Item",
+      "description": "Vegetables, condiments, or dressed meats from the commissary/public market.",
       "type": "object",
       "properties": {
         "name": { "type": "string" },
         "category": { "type": "string" },
-        "image": { "type": "string" },
-        "carbonFootprint": { "type": "number" }
-      },
-      "required": ["name"]
-    },
-    "FarmerInventory": {
-      "title": "Farmer Inventory",
-      "description": "Available stock per farmer.",
-      "type": "object",
-      "properties": {
-        "farmerId": { "type": "string" },
-        "ingredientId": { "type": "string" },
-        "price": { "type": "number" },
+        "supplier": { "type": "string" },
         "stock": { "type": "number" },
         "unit": { "type": "string" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "price": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
       },
-      "required": ["farmerId", "ingredientId", "price", "stock"]
+      "required": ["name", "category", "supplier", "stock", "unit", "price", "createdAt", "updatedAt"]
     },
-    "Recipe": {
-      "title": "Recipe",
-      "description": "Meal suggestions based on seasonal availability.",
+    "WorkflowAudit": {
+      "title": "Workflow Audit",
+      "description": "Simulation documents for workflow debugging.",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "ingredients": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "ingredientId": { "type": "string" },
-              "amount": { "type": "string" }
-            }
-          }
-        },
-        "instructions": { "type": "string" }
-      },
-      "required": ["title", "ingredients"]
-    },
-    "Order": {
-      "title": "Order",
-      "description": "A delivery order from a client.",
-      "type": "object",
-      "properties": {
+        "name": { "type": "string" },
         "clientId": { "type": "string" },
-        "recipeId": { "type": "string" },
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "ingredientId": { "type": "string" },
-              "farmerId": { "type": "string" },
-              "quantity": { "type": "number" }
-            }
-          }
-        },
-        "status": { "type": "string", "enum": ["paid", "assigned", "collecting", "delivering", "completed"] },
-        "riderId": { "type": "string" },
-        "deliveryLocation": {
-          "type": "object",
-          "properties": {
-            "lat": { "type": "number" },
-            "lng": { "type": "number" },
-            "address": { "type": "string" }
-          }
-        },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["clientId", "status", "createdAt"]
-    },
-    "Route": {
-      "title": "Route",
-      "description": "Optimized delivery route for a rider.",
-      "type": "object",
-      "properties": {
-        "riderId": { "type": "string" },
-        "stops": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "enum": ["pickup", "dropoff"] },
-              "location": { "type": "object" },
-              "farmerId": { "type": "string" },
-              "orderId": { "type": "string" }
-            }
-          }
-        },
-        "status": { "type": "string", "enum": ["active", "completed"] }
-      },
-      "required": ["riderId", "status"]
+        "status": { "type": "string" },
+        "workflowType": { "type": "string" },
+        "workflowStep": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "paymentStatus": { "type": "string" },
+        "items": { "type": "array" }
+      }
     }
   },
   "firestore": {
-    "users/{userId}": {
-      "schema": "User",
-      "description": "User profiles and roles."
+    "/workflow_audits/{auditId}": {
+      "schema": { "$ref": "#/entities/WorkflowAudit" },
+      "description": "Workflow debugging audits."
     },
-    "ingredients/{ingredientId}": {
-      "schema": "Ingredient",
-      "description": "Master list of produce."
+    "/commissaryItems/{itemId}": {
+      "schema": { "$ref": "#/entities/CommissaryItem" },
+      "description": "Available items from the commissary."
     },
-    "inventory/{inventoryId}": {
-      "schema": "FarmerInventory",
-      "description": "Real-time stock from farmers."
+    "/recipes/{recipeId}": {
+      "schema": { "$ref": "#/entities/Recipe" },
+      "description": "Standard recipes editable by management."
     },
-    "recipes/{recipeId}": {
-      "schema": "Recipe",
-      "description": "Curated recipes."
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Global user profiles."
     },
-    "orders/{orderId}": {
-      "schema": "Order",
-      "description": "Customer orders."
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "All transactions/orders in the system."
     },
-    "routes/{routeId}": {
-      "schema": "Route",
-      "description": "Optimized delivery batches."
+    "/produce/{produceId}": {
+      "schema": { "$ref": "#/entities/Produce" },
+      "description": "Available produce from farmers."
     }
   }
 }

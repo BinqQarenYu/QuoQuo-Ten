@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -13,13 +13,13 @@ import {
   ChefHat, 
   Bike, 
   Globe, 
-  User as UserIcon, 
-  LogOut,
-  ChevronRight,
-  TrendingUp,
-  MapPin,
-  Clock,
-  Leaf
+  User as UserIcon,
+  Leaf,
+  Database,
+  Store,
+  ShoppingCart,
+  ShoppingBag,
+  Tent
 } from 'lucide-react';
 
 // Components
@@ -27,8 +27,12 @@ import Kitchen from './components/views/Kitchen';
 import Harvest from './components/views/Harvest';
 import Relay from './components/views/Relay';
 import Hub from './components/views/Hub';
+import DatabaseOps from './components/views/DatabaseOps';
+import Commissary from './components/views/Commissary';
+import PortalLayout from './components/layout/PortalLayout';
+import WorkflowDebugger from './components/views/WorkflowDebugger';
 
-type Role = 'client' | 'farmer' | 'rider' | 'admin';
+type Role = 'client' | 'farmer' | 'rider' | 'admin' | 'database' | 'commissary' | 'grocery' | 'supermarket' | 'foodstall' | 'workflow';
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -120,59 +124,49 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 font-sans p-6 flex flex-col">
-      {/* Dev Role Switcher */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white border-2 border-stone-900 rounded-full px-4 py-2 flex items-center gap-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <span className="text-[10px] uppercase font-black text-stone-400 mr-2 border-r-2 pr-4 border-stone-900">Dev Mode</span>
-        <button onClick={() => switchRole('client')} className={`p-2 rounded-lg transition-all ${role === 'client' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><ChefHat size={18} /></button>
-        <button onClick={() => switchRole('farmer')} className={`p-2 rounded-lg transition-all ${role === 'farmer' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Sprout size={18} /></button>
-        <button onClick={() => switchRole('rider')} className={`p-2 rounded-lg transition-all ${role === 'rider' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Bike size={18} /></button>
-        <button onClick={() => switchRole('admin')} className={`p-2 rounded-lg transition-all ${role === 'admin' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Globe size={18} /></button>
-      </div>
-
-      <header className="flex justify-between items-center mb-10">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-600 border-2 border-stone-900 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-            A
-          </div>
-          <h1 className="text-3xl font-black tracking-tighter uppercase leading-none">
-            AgriRoute <span className="text-emerald-600">OS</span>
-          </h1>
-        </div>
-        
-        <div className="flex items-center gap-6">
-          <div className="hidden md:flex gap-4">
-             <div className="bento-tag">Network: 142 Farms Active</div>
-             <div className="bento-tag-emerald">● Live Optimization Active</div>
-          </div>
-          <div className="flex items-center gap-4 border-l-2 border-stone-200 pl-6">
-             <div className="text-right">
-                <p className="text-xs font-black uppercase leading-none">{user.displayName}</p>
-                <p className="text-[10px] uppercase font-bold text-emerald-600 mt-1">{role} terminal</p>
-             </div>
-             <button onClick={handleLogout} className="w-10 h-10 border-2 border-stone-900 rounded-xl flex items-center justify-center hover:bg-stone-100 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-               <LogOut size={16} />
-             </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-grow">
+    <>
+      <PortalLayout role={role} user={user} onLogout={handleLogout}>
         <AnimatePresence mode="wait">
+          {/* @ts-ignore */}
           {role === 'client' && <Kitchen key="kitchen" user={user} />}
+          {/* @ts-ignore */}
           {role === 'farmer' && <Harvest key="harvest" user={user} />}
+          {/* @ts-ignore */}
           {role === 'rider' && <Relay key="relay" user={user} />}
+          {/* @ts-ignore */}
           {role === 'admin' && <Hub key="hub" user={user} />}
+          {/* @ts-ignore */}
+          {role === 'database' && <DatabaseOps key="database" user={user} />}
+          {/* @ts-ignore */}
+          {role === 'commissary' && <Commissary key="commissary" user={user} roleType="commissary" />}
+          {/* @ts-ignore */}
+          {role === 'grocery' && <Commissary key="grocery" user={user} roleType="grocery" />}
+          {/* @ts-ignore */}
+          {role === 'supermarket' && <Commissary key="supermarket" user={user} roleType="supermarket" />}
+          {/* @ts-ignore */}
+          {role === 'foodstall' && <Commissary key="foodstall" user={user} roleType="foodstall" />}
+          {/* @ts-ignore */}
+          {role === 'workflow' && <WorkflowDebugger key="workflow" user={user} />}
         </AnimatePresence>
-      </main>
+      </PortalLayout>
 
-      <footer className="mt-10 flex justify-between text-[10px] font-bold text-stone-400 uppercase tracking-widest border-t-2 border-stone-100 pt-6">
-        <p>© 2026 AGRIROUTE LOGISTICS NETWORK v1.0.4</p>
-        <div className="flex gap-6">
-          <span>System Stable: 99.9%</span>
-          <span className="text-emerald-600">Last Batching: Just Now</span>
-        </div>
-      </footer>
-    </div>
+      {/* Dev Role Switcher - Remains fixed to bottom */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] bg-white border-2 border-stone-900 rounded-full px-4 py-2 flex items-center gap-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-x-auto max-w-[90vw]">
+        <span className="text-[10px] uppercase font-black text-stone-400 mr-2 border-r-2 pr-4 border-stone-900 whitespace-nowrap">Dev Mode</span>
+        <button onClick={() => switchRole('client')} title="Client" className={`p-2 rounded-lg transition-all ${role === 'client' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><ChefHat size={18} /></button>
+        <button onClick={() => switchRole('farmer')} title="Farmer" className={`p-2 rounded-lg transition-all ${role === 'farmer' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Sprout size={18} /></button>
+        <button onClick={() => switchRole('rider')} title="Rider" className={`p-2 rounded-lg transition-all ${role === 'rider' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Bike size={18} /></button>
+        <button onClick={() => switchRole('admin')} title="Admin" className={`p-2 rounded-lg transition-all ${role === 'admin' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Globe size={18} /></button>
+        <button onClick={() => switchRole('database')} title="Database" className={`p-2 rounded-lg transition-all ${role === 'database' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Database size={18} /></button>
+        <button onClick={() => switchRole('workflow')} title="Workflow" className={`p-2 rounded-lg transition-all ${role === 'workflow' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/></svg>
+        </button>
+        <div className="w-[2px] h-6 bg-stone-200 mx-1"></div>
+        <button onClick={() => switchRole('commissary')} title="Commissary" className={`p-2 rounded-lg transition-all ${role === 'commissary' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Store size={18} /></button>
+        <button onClick={() => switchRole('grocery')} title="Grocery" className={`p-2 rounded-lg transition-all ${role === 'grocery' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><ShoppingBag size={18} /></button>
+        <button onClick={() => switchRole('supermarket')} title="Supermarket" className={`p-2 rounded-lg transition-all ${role === 'supermarket' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><ShoppingCart size={18} /></button>
+        <button onClick={() => switchRole('foodstall')} title="Food Stall" className={`p-2 rounded-lg transition-all ${role === 'foodstall' ? 'bg-emerald-600 text-white' : 'hover:bg-stone-100 text-stone-400'}`}><Tent size={18} /></button>
+      </div>
+    </>
   );
 }

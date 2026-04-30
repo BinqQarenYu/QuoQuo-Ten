@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
+import { db } from '../../lib/firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Navigation, Package, CheckCircle2, Clock } from 'lucide-react';
+import { MapPin, Navigation, Package, CheckCircle2, Clock, Globe } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -30,10 +32,28 @@ const riderIcon = new L.Icon({
 });
 
 export default function Relay({ user }: { user: User }) {
-  const [progress, setProgress] = useState(0); // 0 to 100
+  const [progress, setProgress] = useState(0); // 0 to 100 for simulated
   const [eta, setEta] = useState(12);
   const [estimatedDeliveryTime, setEstimatedDeliveryTime] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [activeTxCount, setActiveTxCount] = useState(0);
+
+  // New states for real-time tracking
+  const [useLiveTracking, setUseLiveTracking] = useState(false);
+  const [liveLocation, setLiveLocation] = useState<[number, number] | null>(null);
+  const [liveStatus, setLiveStatus] = useState<string>('En Route');
+  const [manualEtaDelta, setManualEtaDelta] = useState(0);
+
+  useEffect(() => {
+    // Listen to real shipped/processing orders to show active activity
+    const q = query(collection(db, 'transactions'), where('status', 'in', ['shipped', 'processing']));
+    const unsub = onSnapshot(q, (snap) => {
+      setActiveTxCount(snap.docs.length);
+    }, (error) => {
+      console.log('Error fetching active tx for relay', error);
+    });
+    return () => unsub();
+  }, []);
 
   // Villasis to Urdaneta coordinates
   const startPos: [number, number] = [15.9015, 120.5898];
@@ -48,22 +68,85 @@ export default function Relay({ user }: { user: User }) {
     endPos
   ];
 
-  // Calculate rider position based on progress
-  const getRiderPosition = () => {
-    const latDiff = endPos[0] - startPos[0];
-    const lngDiff = endPos[1] - startPos[1];
+  useEffect(() => {
+    let watchId: NodeJS.Timeout;
+    if (useLiveTracking) {
+      // Simulate live GPS by picking points along the route
+      watchId = setInterval(async () => {
+        setProgress(prev => {
+          const next = prev >= 100 ? 100 : prev + 1;
+          
+          // Calculate pos within setProgress callback to align, but we actually 
+          // need to calculate it to push to firestore. 
+          // Let's do calculation next.
+          return next;
+        });
+
+      }, 3000); // 3 seconds interval for live "GPS updates"
+    }
+    return () => {
+      if (watchId !== undefined) clearInterval(watchId);
+    };
+  }, [useLiveTracking]);
+  
+  // Another effect to listen to progress changes and optionally push to DB if live
+  useEffect(() => {
+    if (useLiveTracking) {
+      const pos = getSimulatedRiderPosition();
+      setLiveLocation(pos);
+      
+      import('firebase/firestore').then(({ doc, setDoc }) => {
+        setDoc(doc(db, 'riders', user.uid), {
+          lat: pos[0],
+          lng: pos[1],
+          updatedAt: Date.now()
+        }).catch(err => {
+          console.error("Error saving GPS", err);
+        });
+      });
+    }
+  }, [progress, useLiveTracking, user.uid]);
+
+  // Calculate rider position based on progress (Simulated)
+  const getSimulatedRiderPosition = () => {
+    if (progress >= 100) return endPos;
+    const totalSegments = routePositions.length - 1;
+    const progressPerSegment = 100 / totalSegments;
+    const currentSegmentIndex = Math.min(Math.floor(progress / progressPerSegment), totalSegments - 1);
+    const segmentProgress = (progress % progressPerSegment) / progressPerSegment;
+
+    const start = routePositions[currentSegmentIndex];
+    const end = routePositions[currentSegmentIndex + 1];
+
+    if (!start || !end) return endPos;
+
+    const latDiff = end[0] - start[0];
+    const lngDiff = end[1] - start[1];
     
-    // Smooth interpolation for the demo
-    const currentLat = startPos[0] + (latDiff * (progress / 100));
-    const currentLng = startPos[1] + (lngDiff * (progress / 100));
-    
-    return [currentLat, currentLng] as [number, number];
+    return [
+      start[0] + (latDiff * segmentProgress),
+      start[1] + (lngDiff * segmentProgress)
+    ] as [number, number];
   };
 
-  const riderPos = getRiderPosition();
+  const currentRiderPos = useLiveTracking && liveLocation ? liveLocation : getSimulatedRiderPosition();
 
-  // Simulate progress
+  const getTraveledRoute = (): [number, number][] => {
+    if (useLiveTracking && liveLocation) {
+      return [startPos, liveLocation];
+    }
+    const totalSegments = routePositions.length - 1;
+    const progressPerSegment = 100 / totalSegments;
+    const currentSegmentIndex = Math.min(Math.floor(progress / progressPerSegment), totalSegments - 1);
+    
+    const traveled = routePositions.slice(0, currentSegmentIndex + 1);
+    traveled.push(currentRiderPos);
+    return traveled;
+  };
+
+  // Simulate progress when not tracking live
   useEffect(() => {
+    if (useLiveTracking) return;
     if (progress >= 100) return;
     const interval = setInterval(() => {
       setProgress(prev => {
@@ -72,17 +155,27 @@ export default function Relay({ user }: { user: User }) {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [progress]);
+  }, [progress, useLiveTracking]);
 
-  // Update ETA based on progress
+  // Update ETA based on distance/progress
   useEffect(() => {
-    const newEta = Math.max(1, Math.round(12 * (1 - progress / 100)));
-    setEta(newEta);
+    let newEta = 0;
+    if (useLiveTracking && liveLocation) {
+        // Distance-based rough ETA calc
+        const dist = Math.sqrt(Math.pow(endPos[0] - liveLocation[0], 2) + Math.pow(endPos[1] - liveLocation[1], 2));
+        newEta = Math.round(dist * 500); // rough conversion
+    } else {
+        newEta = Math.round(12 * (1 - progress / 100));
+    }
     
+    // Apply manual adjustment delta
+    newEta = Math.max(1, newEta + manualEtaDelta);
+
+    setEta(newEta);
     const d = new Date();
     d.setMinutes(d.getMinutes() + newEta);
     setEstimatedDeliveryTime(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-  }, [progress]);
+  }, [progress, useLiveTracking, liveLocation, manualEtaDelta]);
 
   
   return (
@@ -99,6 +192,13 @@ export default function Relay({ user }: { user: User }) {
             <p className="text-stone-500 font-bold text-xs uppercase tracking-[0.2em]">Batch ID: #PH-URD-102 • Pangasinan Hub</p>
           </div>
           <div className="flex gap-2">
+			 <button 
+			   onClick={() => setUseLiveTracking(!useLiveTracking)}
+			   className={`bento-tag cursor-pointer ${useLiveTracking ? 'bg-amber-100 text-amber-800 border-amber-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'bg-stone-100 text-stone-800 border-stone-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'}`}
+			 >
+			   <Globe size={12} className="inline mr-1"/> {useLiveTracking ? 'STOP LIVE TRACKING' : 'START LIVE GPS'}
+			 </button>
+             {activeTxCount > 0 && <div className="bento-tag bg-blue-100 text-blue-800 border-blue-900 border-2 font-black shadow-none animate-pulse">DB: {activeTxCount} ACTIVE TXNS</div>}
              <div className="bento-tag bg-emerald-100 text-emerald-800 border-emerald-900">GPS ACTIVE</div>
              <div className="bento-tag bg-blue-100 text-blue-800 border-blue-900">ENCRYPTED</div>
           </div>
@@ -121,12 +221,20 @@ export default function Relay({ user }: { user: User }) {
                   <p className="text-xl font-black uppercase tracking-tight">Urdaneta Central Hub</p>
                 </div>
               </div>
-              <div className="text-right bento-card border-white/10 bg-white/5 py-4 px-6 flex flex-col justify-center">
-                <div className="flex items-center gap-2 justify-end mb-1">
-                   <Clock size={16} className="text-emerald-500" />
-                   <p className="text-3xl font-black text-emerald-500 leading-none">{eta}m</p>
+              <div className="text-right bento-card border-white/10 bg-white/5 py-4 px-6 flex flex-col justify-center min-w-[200px]">
+                <div className="flex items-center gap-4 justify-end mb-1">
+                   <div className="flex items-center gap-1 opacity-50 hover:opacity-100 transition-opacity">
+                     <button onClick={() => setManualEtaDelta(prev => prev - 1)} className="text-red-400 hover:text-red-300 hover:bg-red-400/20 w-6 h-6 rounded-full flex items-center justify-center font-bold font-mono">-</button>
+                     <button onClick={() => setManualEtaDelta(prev => prev + 1)} className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/20 w-6 h-6 rounded-full flex items-center justify-center font-bold font-mono">+</button>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <Clock size={16} className="text-emerald-500" />
+                     <p className="text-3xl font-black text-emerald-500 leading-none">{eta}m</p>
+                   </div>
                 </div>
-                <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mb-3">ETA • Arrival Delta</p>
+                <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mb-3 flex items-center justify-end gap-2">
+                   ETA • Arrival Delta {manualEtaDelta !== 0 && <span className="bg-stone-800 text-stone-300 px-1.5 py-0.5 rounded-sm">{(manualEtaDelta > 0 ? '+' : '') + manualEtaDelta}m</span>}
+                </p>
                 <p className="text-lg font-black text-white leading-none mb-1">{estimatedDeliveryTime}</p>
                 <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Est. Delivery Time</p>
               </div>
@@ -134,8 +242,9 @@ export default function Relay({ user }: { user: User }) {
 
             {/* Simulated Tracking Map */}
             <div className="relative h-64 w-full bg-stone-900/50 rounded-3xl border-2 border-white/5 overflow-hidden mb-8 z-0">
+               {typeof window !== 'undefined' && currentRiderPos[0] && (
                <MapContainer 
-                 center={[15.9388, 120.5802]} 
+                 center={useLiveTracking ? currentRiderPos : [15.9388, 120.5802]} 
                  zoom={13} 
                  zoomControl={false}
                  scrollWheelZoom={false}
@@ -153,23 +262,33 @@ export default function Relay({ user }: { user: User }) {
                  
                  {/* Traveled route polyline */}
                  <Polyline 
-                   positions={[startPos, riderPos]} 
+                   positions={getTraveledRoute()} 
                    pathOptions={{ color: '#2563eb', weight: 5 }} 
                  />
 
-                 {/* Hub locations */}
+                 {/* Hub locations and pickups */}
                  <Marker position={startPos}>
                    <Popup>Villasis Hub</Popup>
+                 </Marker>
+                 <Marker position={[15.9200, 120.5850]} icon={customMarkerIcon}>
+                   <Popup>Farm A (Pickup)</Popup>
+                 </Marker>
+                 <Marker position={[15.9400, 120.5800]} icon={customMarkerIcon}>
+                   <Popup>Farm B (Pickup)</Popup>
+                 </Marker>
+                 <Marker position={[15.9600, 120.5750]} icon={customMarkerIcon}>
+                   <Popup>Farm C (Pickup)</Popup>
                  </Marker>
                  <Marker position={endPos}>
                    <Popup>Urdaneta Central Hub</Popup>
                  </Marker>
 
                  {/* Rider Marker */}
-                 <Marker position={riderPos} icon={riderIcon}>
+                 <Marker position={currentRiderPos} icon={riderIcon}>
                    <Popup>Current Vector</Popup>
                  </Marker>
                </MapContainer>
+               )}
                
                <div className="absolute bottom-4 left-4 flex gap-4 z-[400]">
                   <div className="bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-2 shadow-2xl">
@@ -179,7 +298,7 @@ export default function Relay({ user }: { user: User }) {
                </div>
             </div>
 
-            <div className="space-y-6 pl-6 border-l-2 border-white/10">
+            <div className="space-y-6 pl-6 border-l-2 border-white/10 flex justify-between">
                <div className="relative">
                   <div className="absolute -left-[31px] top-1 w-4 h-4 bg-emerald-500 border-2 border-stone-900 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
                   <p className="text-xs font-black uppercase text-emerald-500 mb-1 tracking-widest flex items-center gap-2">
@@ -189,11 +308,25 @@ export default function Relay({ user }: { user: User }) {
                   <p className="font-bold text-lg mb-1">Delivering: 12kg native produce batch</p>
                   <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Final Stop: Urdaneta Central Kitchen</p>
                </div>
+			   
+			   <div className="text-right">
+			      <p className="text-[10px] font-black uppercase text-stone-500 tracking-widest mb-1">Status Update</p>
+				  <select 
+				    value={liveStatus}
+					onChange={e => setLiveStatus(e.target.value)}
+					className="bg-black text-emerald-500 border-2 border-emerald-900 rounded-xl px-4 py-2 font-black uppercase tracking-widest text-xs outline-none"
+				  >
+				    <option value="Picking Up">Picking Up</option>
+					<option value="En Route">En Route</option>
+					<option value="Arriving">Arriving</option>
+					<option value="Delivered">Delivered</option>
+				  </select>
+			   </div>
             </div>
           </div>
 
           <AnimatePresence mode="wait">
-            {showSuccess ? (
+            {showSuccess || liveStatus === 'Delivered' ? (
               <motion.div
                 key="success"
                 initial={{ opacity: 0, y: 10 }}
@@ -203,7 +336,7 @@ export default function Relay({ user }: { user: User }) {
               >
                 <CheckCircle2 size={24} /> Delivery Confirmed!
               </motion.div>
-            ) : progress >= 100 ? (
+            ) : progress >= 100 && !useLiveTracking ? (
               <motion.button 
                 key="confirm"
                 initial={{ opacity: 0, y: 10 }}
@@ -225,8 +358,8 @@ export default function Relay({ user }: { user: User }) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="w-full mt-10 bg-white/5 text-stone-500 py-6 rounded-3xl border-2 border-white/10 font-black text-lg uppercase tracking-tighter text-center cursor-not-allowed">
-                Delivery in Progress...
+                className="w-full mt-10 bg-white/5 text-stone-500 py-6 rounded-3xl border-2 border-white/10 font-black text-lg uppercase tracking-tighter text-center cursor-not-allowed flex justify-center items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-pulse" /> {liveStatus}...
               </motion.div>
             )}
           </AnimatePresence>
@@ -241,6 +374,7 @@ export default function Relay({ user }: { user: User }) {
               <p className="text-4xl font-black">₱2,480.00</p>
               <p className="text-[10px] font-bold text-stone-500 uppercase tracking-widest">Active batch value</p>
             </div>
+            {!useLiveTracking && (
             <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden border border-stone-200">
                <motion.div 
                  className="bg-emerald-600 h-full" 
@@ -248,6 +382,7 @@ export default function Relay({ user }: { user: User }) {
                  animate={{ width: `${progress}%` }}
                />
             </div>
+            )}
             <div className="flex justify-between items-center bg-stone-50 p-4 rounded-xl border border-stone-200">
               <span className="text-xs font-bold uppercase tracking-widest">Eco-Drive Index</span>
               <span className="text-emerald-600 font-black text-lg">94%</span>

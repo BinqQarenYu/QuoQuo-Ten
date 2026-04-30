@@ -38,4 +38,30 @@
   .bento-tag-emerald {
     @apply bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-emerald-200;
   }
+
+  /* Custom Popup Styling */
+  .farm-popup .leaflet-popup-content-wrapper {
+    @apply rounded-2xl border-2 border-stone-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-0 overflow-hidden;
+  }
+  .farm-popup .leaflet-popup-content {
+    @apply m-0;
+  }
+  .farm-popup.leaflet-popup {
+    transition: opacity 0.3s ease, margin 0.3s ease, transform 0.3s ease !important;
+  }
+  
+  /* Smooth Fade Out overrides */
+  .leaflet-fade-anim .leaflet-popup {
+    transition: opacity 0.3s ease, margin 0.3s ease, transform 0.3s ease !important;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-stone-100 rounded-full my-2;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-stone-300 rounded-full;
+  }
 }

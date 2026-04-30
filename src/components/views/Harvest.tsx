@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User } from 'firebase/auth';
 import { db } from '../../lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Package, Plus, TrendingUp, Sprout, X, ShoppingBag, LeafyGreen, Calendar, AlertTriangle, Bell, Settings2 } from 'lucide-react';
+import { Package, Plus, TrendingUp, Sprout, X, ShoppingBag, LeafyGreen, Calendar, AlertTriangle, Bell, Settings2, Download, Upload } from 'lucide-react';
 
 interface IngredientDetail {
   id: string;
@@ -17,7 +17,7 @@ interface IngredientDetail {
   season: string;
 }
 
-const PRODUCE_DATA: IngredientDetail[] = [
+const DEFAULT_PRODUCE_DATA: IngredientDetail[] = [
   { 
     id: 'calamansi-1',
     name: 'Native Calamansi', 
@@ -69,29 +69,38 @@ export default function Harvest({ user }: { user: User }) {
   const [sortBy, setSortBy] = useState<'quantity' | 'price' | 'status' | null>(null);
   const [thresholds, setThresholds] = useState<Record<string, number>>({});
   const [syncing, setSyncing] = useState(false);
+  const [produceData, setProduceData] = useState<IngredientDetail[]>(DEFAULT_PRODUCE_DATA);
+  const [toasts, setToasts] = useState<{ id: string, title: string, message: string }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevLowStockIds = useRef<Set<string>>(new Set());
 
   // Load persistent thresholds on mount
   useEffect(() => {
-    const loadThresholds = async () => {
-      const docRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(docRef);
+    const docRef = doc(db, 'users', user.uid);
+    const unsub = onSnapshot(docRef, (userDoc) => {
       if (userDoc.exists() && userDoc.data().alertThresholds) {
         setThresholds(userDoc.data().alertThresholds);
-      } else {
+      } else if (!userDoc.exists() || !userDoc.data().alertThresholds) {
         // Fallback for first-time use
-        setThresholds({
+        setThresholds(prev => Object.keys(prev).length === 0 ? {
           'calamansi-1': 60,
           'eggplant-1': 10
-        });
+        } : prev);
       }
-    };
-    loadThresholds();
+      if (userDoc.exists() && userDoc.data().produceLedger) {
+        setProduceData(userDoc.data().produceLedger);
+      }
+    }, (error) => {
+      console.error("Error listening to user doc:", error);
+    });
+    
+    return () => unsub();
   }, [user.uid]);
 
-  const parseStock = (stockStr: string) => parseFloat(stockStr.replace(/[^0-9.]/g, ''));
+  const parseStock = (stockStr: string) => parseFloat(stockStr.replace(/[^0-9.]/g, '')) || 0;
 
   const getSortedData = () => {
-    let data = [...PRODUCE_DATA];
+    let data = [...produceData];
     if (!sortBy) return data;
 
     return data.sort((a, b) => {
@@ -101,21 +110,45 @@ export default function Harvest({ user }: { user: User }) {
         return valB - valA; // High to low stock
       }
       if (sortBy === 'price') {
-        const valA = parseFloat(a.price.replace(/[^0-9.]/g, ''));
-        const valB = parseFloat(b.price.replace(/[^0-9.]/g, ''));
+        const valA = parseFloat(a.price.replace(/[^0-9.]/g, '')) || 0;
+        const valB = parseFloat(b.price.replace(/[^0-9.]/g, '')) || 0;
         return valA - valB; // Low to high price
       }
       if (sortBy === 'status') {
-        return a.status.localeCompare(b.status);
+        return (a.status || '').localeCompare(b.status || '');
       }
       return 0;
     });
   };
 
-  const lowStockItems = PRODUCE_DATA.filter(item => {
+  const lowStockItems = produceData.filter(item => {
     const threshold = thresholds[item.id] || 0;
     return parseStock(item.stock) < threshold;
   });
+
+  // Trigger real-time toasts for new low-stock items
+  useEffect(() => {
+    const currentLowIds = new Set(lowStockItems.map(i => i.id));
+    const newLowItems = lowStockItems.filter(i => !prevLowStockIds.current.has(i.id));
+    
+    if (newLowItems.length > 0) {
+      const newToasts = newLowItems.map(item => ({
+        id: `toast_${Date.now()}_${item.id}`,
+        title: "Critical Supply Alert",
+        message: `Your stock of ${item.name} has fallen below the safety threshold (${item.stock} left). Consider re-ordering immediately.`
+      }));
+      
+      setToasts(prev => [...prev, ...newToasts]);
+      
+      newToasts.forEach(t => {
+        setTimeout(() => {
+          setToasts(prev => prev.filter(x => x.id !== t.id));
+        }, 8000);
+      });
+    }
+
+    prevLowStockIds.current = currentLowIds;
+  }, [lowStockItems]);
 
   const handleUpdateThreshold = async (id: string, val: string) => {
     const num = parseInt(val) || 0;
@@ -131,6 +164,68 @@ export default function Harvest({ user }: { user: User }) {
     }
   };
 
+  const exportCSV = () => {
+    // Generate CSV from current produce data
+    const headers = ['id', 'name', 'stock', 'price', 'status', 'icon', 'nutrition', 'story', 'season'];
+    const rows = produceData.map(item => headers.map(h => `"${(item[h as keyof IngredientDetail] || '').replace(/"/g, '""')}"`).join(','));
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `Stock_Ledger_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
+  const importCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const text = evt.target?.result as string;
+      if (!text) return;
+      
+      const lines = text.split('\n');
+      if (lines.length < 2) return;
+      
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      const newProduceData: IngredientDetail[] = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const rawValues = line.match(/(?:\"([^\"]*)\")|([^\,]+)/g) || [];
+        const values = rawValues.map(v => v.replace(/^"|"$/g, '').trim());
+        
+        const obj: Partial<IngredientDetail> = {};
+        headers.forEach((h, idx) => {
+           if (idx < values.length) {
+              obj[h as keyof IngredientDetail] = values[idx] || '';
+           }
+        });
+        
+        if (obj.id && obj.name) {
+           newProduceData.push(obj as IngredientDetail);
+        }
+      }
+
+      setProduceData(newProduceData);
+      setSyncing(true);
+      try {
+        await setDoc(doc(db, 'users', user.uid), { produceLedger: newProduceData }, { merge: true });
+      } finally {
+        setSyncing(false);
+      }
+      
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }}
@@ -138,17 +233,34 @@ export default function Harvest({ user }: { user: User }) {
       exit={{ opacity: 0, x: -20 }}
       className="grid grid-cols-12 gap-6 relative"
     >
-      <div className="col-span-12 lg:col-span-12 flex justify-between items-end mb-4">
+      <div className="col-span-12 lg:col-span-12 flex flex-col lg:flex-row justify-between items-start lg:items-end mb-4 gap-4">
         <div>
           <h2 className="text-4xl font-black tracking-tighter">Harvest Control</h2>
           <p className="text-stone-500 font-bold text-xs uppercase tracking-[0.2em]">Listing active for 142 clients</p>
         </div>
-        <div className="flex gap-4">
-           <button className="bg-white text-stone-900 px-6 py-4 border-2 border-stone-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-stone-50 transition-all flex items-center gap-2">
-             <Plus size={16} /> Add Batch
+        <div className="flex flex-wrap gap-4">
+           {/* Hidden File Input */}
+           <input 
+             type="file" 
+             accept=".csv" 
+             className="hidden" 
+             ref={fileInputRef} 
+             onChange={importCSV} 
+           />
+           <button 
+             onClick={exportCSV}
+             className="bg-stone-100 text-stone-900 px-6 py-4 border-2 border-stone-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all flex items-center gap-2"
+           >
+             <Download size={16} /> Export to Excel
            </button>
-           <button className="bg-emerald-600 text-white px-8 py-4 border-2 border-stone-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all text-center">
-             Sync Inventory
+           <button 
+             onClick={() => fileInputRef.current?.click()}
+             className="bg-indigo-100 text-indigo-900 px-6 py-4 border-2 border-indigo-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(49,46,129,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all flex items-center gap-2"
+           >
+             <Upload size={16} /> Import from Excel
+           </button>
+           <button className="bg-emerald-600 text-white px-8 py-4 border-2 border-stone-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all text-center flex items-center gap-2">
+             <Plus size={16} /> Add Batch
            </button>
         </div>
       </div>
@@ -270,7 +382,17 @@ export default function Harvest({ user }: { user: User }) {
                 </div>
                 <div className="text-right">
                   <p className={`font-black text-2xl ${isLowStock ? 'text-rose-600' : ''}`}>{item.stock}</p>
-                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">{item.price}</p>
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-2">{item.price}</p>
+                  <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
+                    <span className="text-[8px] font-black uppercase text-stone-400 tracking-widest leading-none">Alert threshold:</span>
+                    <input 
+                      type="number" 
+                      value={thresholds[item.id] !== undefined ? thresholds[item.id] : ''}
+                      onChange={(e) => handleUpdateThreshold(item.id, e.target.value)}
+                      placeholder="0"
+                      className="w-14 bg-white border-2 border-stone-200 rounded-md px-1.5 py-0.5 text-xs font-black text-center text-stone-900 focus:border-stone-900 outline-none transition-colors"
+                    />
+                  </div>
                 </div>
               </div>
             );
@@ -403,6 +525,36 @@ export default function Harvest({ user }: { user: User }) {
           </>
         )}
       </AnimatePresence>
+
+      {/* Toast Notification Container */}
+      <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-4 max-w-sm w-full pointer-events-none">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, y: 20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white border-[3px] border-stone-900 p-4 rounded-2xl shadow-[4px_4px_0px_0px_rgba(225,29,72,1)] flex items-start gap-3 pointer-events-auto"
+            >
+              <div className="bg-rose-100 p-2 rounded-xl mt-1">
+                <AlertTriangle size={20} className="text-rose-600" />
+              </div>
+              <div className="flex-grow">
+                <h4 className="font-black uppercase text-rose-900 tracking-tighter leading-tight mb-1">{toast.title}</h4>
+                <p className="text-xs font-bold text-stone-500 leading-snug">{toast.message}</p>
+              </div>
+              <button 
+                onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                className="text-stone-400 hover:text-stone-900 transition-colors"
+                title="Dismiss"
+              >
+                <X size={16} />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
     </motion.div>
   );
 }
